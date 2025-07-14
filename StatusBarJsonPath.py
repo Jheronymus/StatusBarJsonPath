@@ -3,6 +3,8 @@ import re
 import sublime
 import sublime_plugin
 
+import json
+
 class CopyJsonPathCommand(sublime_plugin.TextCommand):
 	def run(self, edit):
 		json_paths = get_json_path(self.view)
@@ -22,12 +24,44 @@ class StatusBarJsonPath(sublime_plugin.EventListener):
 
 	def update_json_path(self, view):
 		json_paths = get_json_path(view)
-		if len(json_paths):
-			view.set_status(self.KEY_SIZE, "JSONPath: " + ", ".join(json_paths))
+			try:
+				text = view.substr(sublime.Region(0, view.size()))
+				cursor = view.sel()[0].end()
+				obj = json.loads(text)
+				node = self._walk_path(obj, "".join(json_paths))
+			except Exception:
+				print("Error in JSONPath")
+				node = None
+
+			if isinstance(node, list):
+				view.set_status(self.KEY_SIZE, "JSONPath: " + ", ".join(json_paths) + " OBJECTS: " + format(len(node)))
+			elif isinstance(node, dict):
+				view.set_status(self.KEY_SIZE, "JSONPath: " + ", ".join(json_paths) + " ATTRIBUTES: " + format(len(node)))
+			else:
+				view.set_status(self.KEY_SIZE, "JSONPath: " + ", ".join(json_paths))
 		else:
 			view.erase_status(self.KEY_SIZE)
 
 	on_selection_modified_async = update_json_path
+
+	def _walk_path(self, obj, path_str):
+		"""
+		Given a Python obj (dict/list) and a json-path like ".foo[2].bar",
+		step through and return the leaf node.
+		"""
+		#print("walk Path")
+		cur = obj
+		# strip leading dot and split on dots
+		parts = path_str.lstrip(".").split(".")
+		for part in parts:
+			if "[" in part and part.endswith("]"):
+				# e.g. "foo[2]" → key="foo", idx="2"
+				key, idx = part[:-1].split("[")
+				cur = cur[key][int(idx)]
+			else:
+				cur = cur[part]
+
+		return cur
 
 def get_json_path(view):
 	json_paths = []
